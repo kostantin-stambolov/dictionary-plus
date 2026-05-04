@@ -31,3 +31,34 @@ create table if not exists activity_log (
 );
 
 create index if not exists activity_log_user_idx on activity_log (user_id, created_at desc);
+
+create table if not exists user_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references app_users(id) on delete cascade,
+  expires_at timestamptz not null default (now() + interval '30 days'),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists user_sessions_user_idx on user_sessions (user_id);
+
+create table if not exists language_packs (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  source_lang text not null,
+  target_lang text not null,
+  created_by uuid references app_users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists words (
+  id uuid primary key default gen_random_uuid(),
+  pack_id uuid not null references language_packs(id) on delete cascade,
+  ko text not null,
+  bg text[] not null,
+  romanization text not null default '',
+  category text not null default 'basic',
+  query text not null default '',
+  created_at timestamptz not null default now()
+);
+
+create index if not exists words_pack_idx on words (pack_id);

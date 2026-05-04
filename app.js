@@ -1,9 +1,10 @@
 const SESSION_SIZE = 10;
 const STORAGE_KEY = "dictionary-progress-v1";
 const USER_STORAGE_KEY = "dictionary-user-v2";
+const TOKEN_STORAGE_KEY = "dictionary-token-v1";
 
-const WORDS = [
-  { ko: "물", bg: ["вода"], romanization: "mul", category: "nature", query: "water" },
+// words are loaded from the server — no hardcoded list
+const PLACEHOLDER_WORDS = [
   { ko: "불", bg: ["огън"], romanization: "bul", category: "nature", query: "fire" },
   { ko: "집", bg: ["къща", "дом"], romanization: "jip", category: "place", query: "house" },
   { ko: "학교", bg: ["училище"], romanization: "hakgyo", category: "place", query: "school" },
@@ -103,7 +104,7 @@ const WORDS = [
   { ko: "기다리다", bg: ["чакам"], romanization: "gidarida", category: "verb", query: "wait" },
   { ko: "찾다", bg: ["търся", "намирам"], romanization: "chatda", category: "verb", query: "search" },
   { ko: "주다", bg: ["давам"], romanization: "juda", category: "verb", query: "give" },
-];
+]; // kept only as shape reference; real words come from /api/packs/:id/words
 
 const CATEGORY_LABELS = {
   all: "Всички",
@@ -237,11 +238,14 @@ const WORD_VISUALS = {
   give: "🤲",
 };
 
-const WORD_BY_KEY = new Map(WORDS.map((word) => [wordKey(word), word]));
 const storedUserData = loadUserData();
 
 const state = {
   user: storedUserData.user,
+  token: localStorage.getItem(TOKEN_STORAGE_KEY) || null,
+  words: [],
+  wordByKey: new Map(),
+  packId: null,
   backendAvailable: false,
   booting: true,
   authMode: "login",
@@ -249,7 +253,7 @@ const state = {
   pinDraft: "",
   userMenuOpen: false,
   sessionStartedAt: null,
-  syncMessage: "Зареждане...",
+  syncMessage: "Зареждane...",
   mode: storedUserData.ui.mode,
   category: storedUserData.ui.category,
   focused: storedUserData.ui.focused,
@@ -578,9 +582,8 @@ function renderEmpty() {
 }
 
 function logEvent(eventType, extra = {}) {
-  if (!state.backendAvailable || !state.user.id || state.user.id === "local") return;
+  if (!state.backendAvailable || !state.token) return;
   const payload = {
-    userId: state.user.id,
     event_type: eventType,
     category: state.category || null,
     mode: state.mode || null,
@@ -588,7 +591,10 @@ function logEvent(eventType, extra = {}) {
   };
   fetch("/api/log", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "authorization": `Bearer ${state.token}`,
+    },
     body: JSON.stringify(payload),
   }).catch(() => {});
 }
@@ -604,10 +610,8 @@ async function bootBackend() {
     state.backendAvailable = Boolean(health.database);
 
     if (state.backendAvailable) {
-      const userId = state.user.id;
-      const hasRealUserId = userId && userId !== "local" && userId !== "default";
-      if (hasRealUserId) {
-        await restoreSession(userId);
+      if (state.token) {
+        await restoreSession();
       } else {
         state.syncMessage = "Влез или се регистрирай.";
         state.booting = false;
@@ -626,13 +630,16 @@ async function bootBackend() {
   }
 }
 
-async function restoreSession(userId) {
+async function restoreSession() {
   state.syncMessage = "Възстановяване на профил...";
   try {
-    const payload = await apiGet(`/api/state?userId=${userId}`);
+    const payload = await apiGetAuth("/api/state");
     applyRemoteState(payload.user, payload.state);
-    state.syncMessage = "Профилът е възстановен.";
+    await loadWords();
+    state.syncMessage = "";
   } catch {
+    state.token = null;
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
     state.user = { id: "local", name: "" };
     state.syncMessage = "Сесията е изтекла. Влез отново.";
     saveUserData();
@@ -648,7 +655,10 @@ async function loginUser(displayName, pin) {
   render();
   try {
     const payload = await apiPost("/api/login", { displayName: name, pin });
+    state.token = payload.token;
+    localStorage.setItem(TOKEN_STORAGE_KEY, payload.token);
     applyRemoteState(payload.user, payload.state);
+    await loadWords();
     state.syncMessage = "Добре дошъл, " + (payload.user.displayName || name) + "!";
   } catch (error) {
     state.syncMessage = error.message || "Неуспешно влизане.";
@@ -664,7 +674,10 @@ async function registerUser(displayName, pin) {
   render();
   try {
     const payload = await apiPost("/api/register", { displayName: name, pin });
+    state.token = payload.token;
+    localStorage.setItem(TOKEN_STORAGE_KEY, payload.token);
     applyRemoteState(payload.user, payload.state);
+    await loadWords();
     state.syncMessage = "Профилът е създаден. Добре дошъл, " + (payload.user.displayName || name) + "!";
   } catch (error) {
     state.syncMessage = error.message || "Неуспешна регистрация.";
@@ -719,7 +732,18 @@ function handleClick(event) {
   }
 
   if (action === "logout") {
+    if (state.token) {
+      fetch("/api/logout", {
+        method: "POST",
+        headers: { "authorization": `Bearer ${state.token}` },
+      }).catch(() => {});
+    }
+    state.token = null;
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
     state.user = { id: "local", name: "" };
+    state.words = [];
+    state.wordByKey = new Map();
+    state.packId = null;
     state.authDraft = "";
     state.pinDraft = "";
     state.syncMessage = "";
@@ -861,13 +885,14 @@ async function handleSubmit(event) {
 }
 
 function filteredWords() {
-  if (state.category === "all") return WORDS;
+  const words = state.words;
+  if (state.category === "all") return words;
 
-  const selected = WORDS.filter((word) => word.category === state.category);
+  const selected = words.filter((word) => word.category === state.category);
   if (selected.length >= SESSION_SIZE) return selected;
 
   const selectedKeys = new Set(selected.map(wordKey));
-  const supplement = WORDS.filter((word) => !selectedKeys.has(wordKey(word))).slice(0, SESSION_SIZE - selected.length);
+  const supplement = words.filter((word) => !selectedKeys.has(wordKey(word))).slice(0, SESSION_SIZE - selected.length);
   return [...selected, ...supplement];
 }
 
@@ -875,7 +900,7 @@ function currentSession(words) {
   const sessionRecord = ensureSession(state.category, words, false);
   state.activeIndex = Math.min(sessionRecord.activeIndex || 0, Math.max(0, sessionRecord.wordKeys.length - 1));
   sessionRecord.activeIndex = state.activeIndex;
-  return sessionRecord.wordKeys.map((key) => WORD_BY_KEY.get(key)).filter(Boolean);
+  return sessionRecord.wordKeys.map((key) => state.wordByKey.get(key)).filter(Boolean);
 }
 
 function ensureSession(category, words, forceNew) {
@@ -1078,7 +1103,7 @@ function saveUserData() {
   localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(data));
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.progress));
 
-  if (state.backendAvailable && state.user.id && state.user.id !== "local") {
+  if (state.backendAvailable && state.token) {
     queueSync(data);
   }
 }
@@ -1093,13 +1118,12 @@ function queueSync(data) {
 }
 
 async function syncNow() {
-  if (!latestSyncData || !state.backendAvailable || !state.user.id) return;
+  if (!latestSyncData || !state.backendAvailable || !state.token) return;
   const data = latestSyncData;
   latestSyncData = null;
 
   try {
-    await apiPost("/api/sync", {
-      userId: state.user.id,
+    await apiPostAuth("/api/sync", {
       state: {
         progress: data.progress,
         sessions: data.sessions,
@@ -1112,8 +1136,25 @@ async function syncNow() {
   }
 }
 
+async function loadWords() {
+  const packs = await apiGetAuth("/api/packs");
+  if (!packs.length) return;
+  const pack = packs[0];
+  state.packId = pack.id;
+  const { words } = await apiGetAuth(`/api/packs/${pack.id}/words`);
+  state.words = words;
+  state.wordByKey = new Map(words.map((w) => [wordKey(w), w]));
+}
+
 async function apiGet(path) {
   const response = await fetch(path);
+  return readApiResponse(response);
+}
+
+async function apiGetAuth(path) {
+  const response = await fetch(path, {
+    headers: { "authorization": `Bearer ${state.token}` },
+  });
   return readApiResponse(response);
 }
 
@@ -1121,6 +1162,18 @@ async function apiPost(path, body) {
   const response = await fetch(path, {
     method: "POST",
     headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return readApiResponse(response);
+}
+
+async function apiPostAuth(path, body) {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "authorization": `Bearer ${state.token}`,
+    },
     body: JSON.stringify(body),
   });
   return readApiResponse(response);
