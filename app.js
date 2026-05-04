@@ -1137,8 +1137,8 @@ async function syncNow() {
 }
 
 async function loadWords() {
-  const packs = await apiGetAuth("/api/packs");
-  if (!packs.length) return;
+  const { packs } = await apiGetAuth("/api/packs");
+  if (!packs || !packs.length) return;
   const pack = packs[0];
   state.packId = pack.id;
   const { words: raw } = await apiGetAuth(`/api/packs/${pack.id}/words`);
