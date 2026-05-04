@@ -248,6 +248,7 @@ const state = {
   authDraft: storedUserData.user.name === "Default user" ? "" : storedUserData.user.name,
   pinDraft: "",
   userMenuOpen: false,
+  sessionStartedAt: null,
   syncMessage: "Зареждане...",
   mode: storedUserData.ui.mode,
   category: storedUserData.ui.category,
@@ -334,10 +335,14 @@ function renderDictionary() {
 
   app.innerHTML = `
     <header class="topbar">
-      <div>
-        <p class="eyebrow">Активен речник</p>
-        <h1>Dictionary</h1>
-        <p class="dictionary-meta">${dictionaryLabel}</p>
+      <div class="topbar-left">
+        ${state.focused ? `
+          <button class="back-btn" data-action="change-session">← Назад</button>
+        ` : `
+          <p class="eyebrow">Активен речник</p>
+          <h1>Dictionary</h1>
+          <p class="dictionary-meta">${dictionaryLabel}</p>
+        `}
       </div>
       <div class="topbar-user">
         <button class="avatar-btn" data-action="toggle-user-menu" aria-label="Профил">
@@ -363,28 +368,52 @@ function renderDictionary() {
 function renderHome({ learned, mastered, sessionRange }) {
   return `
     <section class="stats" aria-label="Прогрес">
-      <div><strong>${CATEGORY_LABELS[state.category]}</strong><span>сет думи</span></div>
-      <div><strong>${sessionRange}</strong><span>текуща сесия</span></div>
-      <div><strong>${mastered}/${learned || 0}</strong><span>стабилни / учени</span></div>
+      <div class="stat-card">
+        <strong>${sessionRange}</strong>
+        <span>думи в сесията</span>
+      </div>
+      <div class="stat-card">
+        <strong>${learned || 0}</strong>
+        <span>учени думи</span>
+      </div>
+      <div class="stat-card stat-card--accent">
+        <strong>${mastered}</strong>
+        <span>стабилни</span>
+      </div>
     </section>
 
+    <p class="section-label">Категория</p>
     <section class="filters" aria-label="Категории">
-      ${Object.keys(CATEGORY_LABELS)
-        .map(
-          (key) => `<button class="${state.category === key ? "active" : ""}" data-category="${key}">${CATEGORY_LABELS[key]}</button>`,
-        )
-        .join("")}
+      ${Object.keys(CATEGORY_LABELS).map((key) => {
+        const color = (CATEGORY_VISUALS[key] || {}).color || "var(--accent)";
+        const active = state.category === key;
+        return `<button
+          class="filter-btn${active ? " active" : ""}"
+          data-category="${key}"
+          style="--cat:${color}"
+        >${CATEGORY_LABELS[key]}</button>`;
+      }).join("")}
     </section>
 
+    <p class="section-label">Режим</p>
     <nav class="mode-grid" aria-label="Режим">
-      <button class="primary" data-mode="learn">Започни учене</button>
-      <button data-mode="quiz">Куиз със сесията</button>
-      <button data-mode="library">Отвори речника</button>
+      <button class="mode-card mode-card--primary" data-mode="learn">
+        <span class="mode-icon">📖</span>
+        <span class="mode-title">Учене</span>
+        <span class="mode-desc">Разгледай думите от сесията</span>
+      </button>
+      <button class="mode-card" data-mode="quiz">
+        <span class="mode-icon">✏️</span>
+        <span class="mode-title">Куиз</span>
+        <span class="mode-desc">Напиши превода</span>
+      </button>
+      <button class="mode-card" data-mode="library">
+        <span class="mode-icon">📚</span>
+        <span class="mode-title">Речник</span>
+        <span class="mode-desc">Всички думи</span>
+      </button>
     </nav>
 
-    <div class="session-actions">
-      <button class="text-button" data-action="reset-session">↻ Нова сесия</button>
-    </div>
   `;
 }
 
@@ -477,24 +506,27 @@ function renderQuiz(session) {
   const word = session[state.quizIndex];
   return `
     <form class="quiz-card">
-      <p class="section-title">Куиз · ${state.quizIndex + 1}/${session.length}</p>
-      <div class="quiz-word" lang="ko">${word.ko}</div>
-      <p class="romanization">${word.romanization}</p>
-      <label>
-        <span>Значение на български</span>
-        <input
-          name="quiz"
-          value="${escapeHtml(state.quizInput)}"
-          placeholder="например: вода"
-          autocomplete="off"
-          autocapitalize="none"
-          autofocus
-        />
-      </label>
-      ${state.answerState ? renderAnswerState(word) : ""}
-      <div class="practice">
-        <button type="button" data-action="speak-quiz">Чуй</button>
-        <button type="submit" class="primary">${state.answerState ? "Следваща" : "Провери"}</button>
+      ${renderVisual(word, "large")}
+      <div class="quiz-body">
+        <p class="section-title">Куиз · ${state.quizIndex + 1}/${session.length}</p>
+        <div class="quiz-word" lang="ko">${word.ko}</div>
+        <p class="romanization">${word.romanization}</p>
+        <label>
+          <span>Значение на български</span>
+          <input
+            name="quiz"
+            value="${escapeHtml(state.quizInput)}"
+            placeholder="например: вода"
+            autocomplete="off"
+            autocapitalize="none"
+            autofocus
+          />
+        </label>
+        ${state.answerState ? renderAnswerState(word) : ""}
+        <div class="practice">
+          <button type="button" data-action="speak-quiz">Чуй</button>
+          <button type="submit" class="primary">${state.answerState ? "Следваща" : "Провери"}</button>
+        </div>
       </div>
     </form>
   `;
@@ -543,6 +575,27 @@ function renderVisual(word, size = "small") {
 
 function renderEmpty() {
   return `<section class="empty">Няма думи в тази категория.</section>`;
+}
+
+function logEvent(eventType, extra = {}) {
+  if (!state.backendAvailable || !state.user.id || state.user.id === "local") return;
+  const payload = {
+    userId: state.user.id,
+    event_type: eventType,
+    category: state.category || null,
+    mode: state.mode || null,
+    ...extra,
+  };
+  fetch("/api/log", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
+}
+
+function sessionDuration() {
+  if (!state.sessionStartedAt) return null;
+  return Math.round((Date.now() - state.sessionStartedAt) / 1000);
 }
 
 async function bootBackend() {
@@ -635,7 +688,10 @@ function handleClick(event) {
   if (mode) {
     state.mode = mode;
     state.focused = true;
+    state.sessionStartedAt = Date.now();
     if (mode === "quiz") resetQuiz();
+    logEvent("session_start", { mode, metadata: { category: state.category } });
+    if (mode === "library") logEvent("section_visit", { mode, metadata: { category: state.category } });
     saveUserData();
     render();
     return;
@@ -701,7 +757,12 @@ function handleClick(event) {
   }
 
   if (action === "change-session") {
+    logEvent("session_cancel", {
+      duration_seconds: sessionDuration(),
+      metadata: { progress_index: state.activeIndex },
+    });
     state.focused = false;
+    state.sessionStartedAt = null;
   }
 
   if (action === "start-quiz") {
@@ -730,6 +791,7 @@ function handleClick(event) {
   if (action === "know-next") {
     const word = session[state.activeIndex];
     bumpProgress(word, "known");
+    logEvent("word_known", { metadata: { ko: word?.ko, bg: word?.bg?.[0] } });
     advanceSession(session, words, true);
   }
 
@@ -791,6 +853,9 @@ async function handleSubmit(event) {
   state.answerState = correct ? "correct" : "wrong";
   state.quizResults[state.quizIndex] = correct;
   bumpProgress(word, correct ? "correct" : "wrong");
+  logEvent("quiz_answer", {
+    metadata: { ko: word.ko, correct, given: state.quizInput, expected: word.bg[0] },
+  });
   saveUserData();
   render();
 }
@@ -889,6 +954,11 @@ function completeCurrentSession() {
     sessionRecord.completedAt = new Date().toISOString();
     sessionRecord.activeIndex = state.activeIndex;
   }
+  logEvent("session_complete", {
+    duration_seconds: sessionDuration(),
+    metadata: { words_count: state.sessions[state.category]?.wordKeys?.length || 0 },
+  });
+  state.sessionStartedAt = null;
   saveUserData();
 }
 
@@ -965,7 +1035,7 @@ function applyRemoteState(user, remoteState) {
   state.category = remoteState.ui?.category || "all";
   state.mode = remoteState.ui?.mode || "learn";
   state.activeIndex = remoteState.ui?.activeIndex || 0;
-  state.focused = Boolean(remoteState.ui?.focused);
+  state.focused = false;
   state.showBulgarian = true;
   resetQuiz();
   saveUserData();

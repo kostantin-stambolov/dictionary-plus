@@ -52,6 +52,19 @@ create table if not exists user_dictionary_state (
 );
 
 create index if not exists app_users_handle_idx on app_users (handle);
+
+create table if not exists activity_log (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references app_users(id) on delete cascade,
+  event_type text not null,
+  category text,
+  mode text,
+  duration_seconds int,
+  metadata jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+
+create index if not exists activity_log_user_idx on activity_log (user_id, created_at desc);
 `;
 
 const server = http.createServer(async (request, response) => {
@@ -145,6 +158,14 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/log") {
+    const body = await readJson(request);
+    requireUserId(body.userId);
+    await logActivity(body);
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/state") {
     const userId = url.searchParams.get("userId");
     requireUserId(userId);
@@ -225,6 +246,25 @@ async function saveState(userId, state) {
     [userId, JSON.stringify(normalized.progress), JSON.stringify(normalized.sessions), JSON.stringify(normalized.ui)],
   );
   return normalizeState(result.rows[0]);
+}
+
+async function logActivity(body) {
+  const allowed = ["session_start", "session_complete", "session_cancel", "section_visit", "word_known", "quiz_answer"];
+  const eventType = allowed.includes(body.event_type) ? body.event_type : null;
+  if (!eventType) return;
+
+  await pool.query(
+    `insert into activity_log (user_id, event_type, category, mode, duration_seconds, metadata)
+     values ($1, $2, $3, $4, $5, $6::jsonb)`,
+    [
+      body.userId,
+      eventType,
+      body.category || null,
+      body.mode || null,
+      Number.isFinite(body.duration_seconds) ? body.duration_seconds : null,
+      JSON.stringify(body.metadata || {}),
+    ],
+  );
 }
 
 function normalizeState(state) {

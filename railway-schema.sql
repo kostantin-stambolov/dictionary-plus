@@ -18,3 +18,16 @@ create table if not exists user_dictionary_state (
 );
 
 create index if not exists app_users_handle_idx on app_users (handle);
+
+create table if not exists activity_log (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references app_users(id) on delete cascade,
+  event_type text not null,
+  category text,
+  mode text,
+  duration_seconds int,
+  metadata jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+
+create index if not exists activity_log_user_idx on activity_log (user_id, created_at desc);
