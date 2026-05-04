@@ -244,7 +244,9 @@ const state = {
   user: storedUserData.user,
   backendAvailable: false,
   booting: true,
-  authDraft: storedUserData.user.name,
+  authMode: "login",
+  authDraft: storedUserData.user.name === "Default user" ? "" : storedUserData.user.name,
+  pinDraft: "",
   syncMessage: "Зареждане...",
   mode: storedUserData.ui.mode,
   category: storedUserData.ui.category,
@@ -309,13 +311,41 @@ function render() {
 function renderLogin() {
   if (state.focused) return "";
 
+  const isLoggedIn = state.user.id && state.user.id !== "local" && state.user.id !== "default";
+  if (isLoggedIn && state.backendAvailable) {
+    return `
+      <div class="login-row">
+        <p>Здравей, <strong>${escapeHtml(state.user.name)}</strong></p>
+        <button class="text-button" data-action="logout">Смени профил</button>
+        <p>${escapeHtml(state.syncMessage)}</p>
+      </div>
+    `;
+  }
+
+  if (!state.backendAvailable) {
+    return `
+      <div class="login-row">
+        <p>${escapeHtml(state.syncMessage)}</p>
+      </div>
+    `;
+  }
+
+  const isRegister = state.authMode === "register";
   return `
-    <form class="login-row" data-form="login">
+    <form class="login-row" data-form="auth">
+      <div class="auth-toggle">
+        <button type="button" class="${!isRegister ? "active" : ""}" data-action="set-auth-login">Влез</button>
+        <button type="button" class="${isRegister ? "active" : ""}" data-action="set-auth-register">Регистрация</button>
+      </div>
       <label>
-        <span>Профил</span>
+        <span>Име</span>
         <input name="displayName" value="${escapeHtml(state.authDraft)}" placeholder="например: Mira" autocomplete="username" />
       </label>
-      <button class="primary" type="submit">${state.backendAvailable ? "Влез / зареди" : "Запази локално"}</button>
+      <label>
+        <span>PIN (4–6 цифри)</span>
+        <input name="pin" type="password" inputmode="numeric" maxlength="6" value="${escapeHtml(state.pinDraft)}" placeholder="••••" autocomplete="${isRegister ? "new-password" : "current-password"}" />
+      </label>
+      <button class="primary" type="submit">${isRegister ? "Създай профил" : "Влез"}</button>
       <p>${escapeHtml(state.syncMessage)}</p>
     </form>
   `;
@@ -506,11 +536,19 @@ async function bootBackend() {
   try {
     const health = await apiGet("/api/health");
     state.backendAvailable = Boolean(health.database);
-    state.syncMessage = state.backendAvailable ? "Свързано с Postgres." : "Локален режим без DATABASE_URL.";
 
     if (state.backendAvailable) {
-      await loginUser(state.user.name);
+      const userId = state.user.id;
+      const hasRealUserId = userId && userId !== "local" && userId !== "default";
+      if (hasRealUserId) {
+        await restoreSession(userId);
+      } else {
+        state.syncMessage = "Влез или се регистрирай.";
+        state.booting = false;
+        render();
+      }
     } else {
+      state.syncMessage = "Локален режим без DATABASE_URL.";
       state.booting = false;
       render();
     }
@@ -522,28 +560,51 @@ async function bootBackend() {
   }
 }
 
-async function loginUser(displayName) {
-  const name = normalizeDisplayName(displayName);
-  state.authDraft = name;
-
-  if (!state.backendAvailable) {
-    state.user = { id: "local", name };
-    state.syncMessage = "Запазено локално в този браузър.";
-    saveUserData();
-    return;
-  }
-
-  state.syncMessage = "Зареждане на профил...";
-  render();
-
+async function restoreSession(userId) {
+  state.syncMessage = "Възстановяване на профил...";
   try {
-    const payload = await apiPost("/api/login", { displayName: name });
+    const payload = await apiGet(`/api/state?userId=${userId}`);
     applyRemoteState(payload.user, payload.state);
-    state.syncMessage = "Профилът е синхронизиран.";
-  } catch (error) {
-    state.syncMessage = error.message || "Неуспешно зареждане на профил.";
+    state.syncMessage = "Профилът е възстановен.";
+  } catch {
+    state.user = { id: "local", name: "" };
+    state.syncMessage = "Сесията е изтекла. Влез отново.";
+    saveUserData();
   } finally {
     state.booting = false;
+    render();
+  }
+}
+
+async function loginUser(displayName, pin) {
+  const name = normalizeDisplayName(displayName);
+  state.syncMessage = "Влизане...";
+  render();
+  try {
+    const payload = await apiPost("/api/login", { displayName: name, pin });
+    applyRemoteState(payload.user, payload.state);
+    state.syncMessage = "Добре дошъл, " + (payload.user.displayName || name) + "!";
+  } catch (error) {
+    state.syncMessage = error.message || "Неуспешно влизане.";
+  } finally {
+    state.booting = false;
+    render();
+  }
+}
+
+async function registerUser(displayName, pin) {
+  const name = normalizeDisplayName(displayName);
+  state.syncMessage = "Създаване на профил...";
+  render();
+  try {
+    const payload = await apiPost("/api/register", { displayName: name, pin });
+    applyRemoteState(payload.user, payload.state);
+    state.syncMessage = "Профилът е създаден. Добре дошъл, " + (payload.user.displayName || name) + "!";
+  } catch (error) {
+    state.syncMessage = error.message || "Неуспешна регистрация.";
+  } finally {
+    state.booting = false;
+    render();
   }
 }
 
@@ -575,6 +636,33 @@ function handleClick(event) {
 
   const words = filteredWords();
   const session = currentSession(words);
+
+  if (action === "logout") {
+    state.user = { id: "local", name: "" };
+    state.authDraft = "";
+    state.pinDraft = "";
+    state.syncMessage = "Излязъл си.";
+    state.focused = false;
+    state.progress = { learned: {} };
+    state.sessions = {};
+    saveUserData();
+    render();
+    return;
+  }
+
+  if (action === "set-auth-login") {
+    state.authMode = "login";
+    state.syncMessage = "";
+    render();
+    return;
+  }
+
+  if (action === "set-auth-register") {
+    state.authMode = "register";
+    state.syncMessage = "";
+    render();
+    return;
+  }
 
   if (action === "reset-session") {
     createSession(state.category, words, true);
@@ -641,12 +729,20 @@ function handleInput(event) {
   if (event.target.name === "displayName") {
     state.authDraft = event.target.value;
   }
+
+  if (event.target.name === "pin") {
+    state.pinDraft = event.target.value.replace(/\D/g, "").slice(0, 6);
+  }
 }
 
 async function handleSubmit(event) {
   event.preventDefault();
-  if (event.target.dataset.form === "login") {
-    await loginUser(state.authDraft);
+  if (event.target.dataset.form === "auth") {
+    if (state.authMode === "register") {
+      await registerUser(state.authDraft, state.pinDraft);
+    } else {
+      await loginUser(state.authDraft, state.pinDraft);
+    }
     render();
     return;
   }

@@ -109,35 +109,58 @@ h1 {
 }
 
 .login-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  align-items: end;
   margin-bottom: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
 }
 
 .login-row label {
   margin-top: 0;
 }
 
-.login-row button {
-  min-width: 132px;
-  padding: 0 14px;
+.login-row > button.primary {
+  width: 100%;
 }
 
 .login-row p {
-  grid-column: 1 / -1;
-  margin: -2px 0 0;
+  margin: 0;
   color: var(--muted);
   font-size: 0.82rem;
 }
 
-@media (max-width: 420px) {
-  .login-row {
-    grid-template-columns: 1fr;
-  }
+.auth-toggle {
+  display: flex;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px;
+  background: var(--bg);
+}
 
-  .login-row button {
+.auth-toggle button {
+  flex: 1;
+  min-height: 34px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.auth-toggle button.active {
+  background: var(--panel-strong);
+  color: var(--ink);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.10);
+}
+
+@media (max-width: 420px) {
+  .login-row > button.primary {
     width: 100%;
   }
 }

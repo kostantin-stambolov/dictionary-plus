@@ -36,9 +36,12 @@ create table if not exists app_users (
   id uuid primary key default gen_random_uuid(),
   handle text not null unique,
   display_name text not null,
+  pin_hash text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table app_users add column if not exists pin_hash text;
 
 create table if not exists user_dictionary_state (
   user_id uuid primary key references app_users(id) on delete cascade,
@@ -77,10 +80,66 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/register") {
+    const body = await readJson(request);
+    const displayName = normalizeDisplayName(body.displayName || "");
+    const pin = String(body.pin || "");
+    if (!displayName || displayName === "Default user") {
+      sendJson(response, 400, { error: "Въведи име." });
+      return;
+    }
+    if (!/^\d{4,6}$/.test(pin)) {
+      sendJson(response, 400, { error: "PIN кодът трябва да е 4–6 цифри." });
+      return;
+    }
+    const handle = toHandle(displayName);
+    const existing = await pool.query(`select id from app_users where handle = $1`, [handle]);
+    if (existing.rows[0]) {
+      sendJson(response, 409, { error: "Потребител с това име вече съществува." });
+      return;
+    }
+    const user = await createUser(displayName, pin);
+    const state = await getState(user.id);
+    sendJson(response, 200, { user, state });
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/login") {
     const body = await readJson(request);
-    const displayName = normalizeDisplayName(body.displayName || body.name || "Default user");
-    const user = await upsertUser(displayName);
+    const displayName = normalizeDisplayName(body.displayName || "");
+    const pin = String(body.pin || "");
+    if (!displayName || displayName === "Default user") {
+      sendJson(response, 400, { error: "Въведи име." });
+      return;
+    }
+    if (!pin) {
+      sendJson(response, 400, { error: "Въведи PIN код." });
+      return;
+    }
+    const handle = toHandle(displayName);
+    const result = await pool.query(
+      `select id, handle, display_name as "displayName", pin_hash
+       from app_users where handle = $1`,
+      [handle],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      sendJson(response, 401, { error: "Потребителят не е намерен." });
+      return;
+    }
+    if (!row.pin_hash) {
+      sendJson(response, 401, { error: "Акаунтът няма PIN. Моля, регистрирай се наново." });
+      return;
+    }
+    const verify = await pool.query(
+      `select (pin_hash = crypt($1, pin_hash)) as ok from app_users where id = $2`,
+      [pin, row.id],
+    );
+    if (!verify.rows[0]?.ok) {
+      sendJson(response, 401, { error: "Грешен PIN код." });
+      return;
+    }
+    const user = { id: row.id, handle: row.handle, displayName: row.displayName };
     const state = await getState(user.id);
     sendJson(response, 200, { user, state });
     return;
@@ -106,26 +165,19 @@ async function handleApi(request, response, url) {
   sendJson(response, 404, { error: "API route not found." });
 }
 
-async function upsertUser(displayName) {
+async function createUser(displayName, pin) {
   const handle = toHandle(displayName);
   const result = await pool.query(
     `
-      insert into app_users (handle, display_name)
-      values ($1, $2)
-      on conflict (handle)
-      do update set display_name = excluded.display_name, updated_at = now()
+      insert into app_users (handle, display_name, pin_hash)
+      values ($1, $2, crypt($3, gen_salt('bf')))
       returning id, handle, display_name as "displayName"
     `,
-    [handle, displayName],
+    [handle, displayName, pin],
   );
-
   const user = result.rows[0];
   await pool.query(
-    `
-      insert into user_dictionary_state (user_id)
-      values ($1)
-      on conflict (user_id) do nothing
-    `,
+    `insert into user_dictionary_state (user_id) values ($1) on conflict (user_id) do nothing`,
     [user.id],
   );
   return user;
