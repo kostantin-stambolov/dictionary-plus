@@ -1,0 +1,16 @@
+{
+  "name": "Dictionary",
+  "short_name": "Dictionary",
+  "description": "Мобилно приложение за учене на корейски думи.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f6f1e8",
+  "theme_color": "#f6f1e8",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

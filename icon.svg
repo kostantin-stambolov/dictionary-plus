@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#d84e2f"/>
+  <circle cx="392" cy="116" r="58" fill="#f6f1e8" opacity=".9"/>
+  <text x="256" y="318" text-anchor="middle" font-size="212" font-family="Arial, sans-serif" font-weight="800" fill="#fff">물</text>
+</svg>
