@@ -1141,7 +1141,14 @@ async function loadWords() {
   if (!packs.length) return;
   const pack = packs[0];
   state.packId = pack.id;
-  const { words } = await apiGetAuth(`/api/packs/${pack.id}/words`);
+  const { words: raw } = await apiGetAuth(`/api/packs/${pack.id}/words`);
+  const words = raw.map((w) => ({
+    ko: w.term,
+    bg: Array.isArray(w.translations) ? w.translations : [w.translations],
+    romanization: w.romanization || "",
+    category: w.category || "basic",
+    query: w.visual_query || "",
+  }));
   state.words = words;
   state.wordByKey = new Map(words.map((w) => [wordKey(w), w]));
 }
