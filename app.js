@@ -247,6 +247,7 @@ const state = {
   authMode: "login",
   authDraft: storedUserData.user.name === "Default user" ? "" : storedUserData.user.name,
   pinDraft: "",
+  userMenuOpen: false,
   syncMessage: "Зареждане...",
   mode: storedUserData.ui.mode,
   category: storedUserData.ui.category,
@@ -339,13 +340,15 @@ function renderDictionary() {
         <p class="dictionary-meta">${dictionaryLabel}</p>
       </div>
       <div class="topbar-user">
-        <span class="user-name">${escapeHtml(state.user.name)}</span>
-        ${
-          state.focused
-            ? `<button class="text-button" data-action="change-session">Смени</button>`
-            : `<button class="icon-button" data-action="reset-session" title="Нова сесия" aria-label="Нова сесия">↻</button>`
-        }
-        <button class="text-button logout-btn" data-action="logout" title="Изход">Изход</button>
+        <button class="avatar-btn" data-action="toggle-user-menu" aria-label="Профил">
+          ${escapeHtml(state.user.name.charAt(0).toUpperCase())}
+        </button>
+        ${state.userMenuOpen ? `
+          <div class="user-menu">
+            <p class="user-menu-name">${escapeHtml(state.user.name)}</p>
+            <button data-action="logout">Изход</button>
+          </div>
+        ` : ""}
       </div>
     </header>
 
@@ -378,6 +381,10 @@ function renderHome({ learned, mastered, sessionRange }) {
       <button data-mode="quiz">Куиз със сесията</button>
       <button data-mode="library">Отвори речника</button>
     </nav>
+
+    <div class="session-actions">
+      <button class="text-button" data-action="reset-session">↻ Нова сесия</button>
+    </div>
   `;
 }
 
@@ -619,6 +626,12 @@ function handleClick(event) {
   const category = event.target.closest("[data-category]")?.dataset.category;
   const action = event.target.closest("[data-action]")?.dataset.action;
 
+  if (state.userMenuOpen && action !== "toggle-user-menu" && action !== "logout") {
+    state.userMenuOpen = false;
+    render();
+    if (!action && !mode && !category) return;
+  }
+
   if (mode) {
     state.mode = mode;
     state.focused = true;
@@ -643,12 +656,19 @@ function handleClick(event) {
   const words = filteredWords();
   const session = currentSession(words);
 
+  if (action === "toggle-user-menu") {
+    state.userMenuOpen = !state.userMenuOpen;
+    render();
+    return;
+  }
+
   if (action === "logout") {
     state.user = { id: "local", name: "" };
     state.authDraft = "";
     state.pinDraft = "";
-    state.syncMessage = "Излязъл си.";
+    state.syncMessage = "";
     state.focused = false;
+    state.userMenuOpen = false;
     state.progress = { learned: {} };
     state.sessions = {};
     saveUserData();
