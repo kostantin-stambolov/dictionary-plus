@@ -65,10 +65,80 @@ button:disabled {
 
 .topbar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 14px;
+}
+
+.topbar-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+  padding-top: 4px;
+}
+
+.user-name {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.logout-btn {
+  font-size: 0.78rem;
+  color: var(--muted);
+  padding: 0;
+  min-height: unset;
+  border: none;
+  background: none;
+}
+
+.auth-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  gap: 28px;
+  padding: 32px 0;
+}
+
+.auth-brand {
+  text-align: center;
+}
+
+.auth-brand h1 {
+  font-size: 2.4rem;
+}
+
+.auth-brand .dictionary-meta {
+  margin-top: 4px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 360px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 24px;
+}
+
+.auth-form > button.primary {
+  margin-top: 4px;
+}
+
+.auth-message {
+  margin: 0;
+  text-align: center;
+  font-size: 0.84rem;
+  color: var(--muted);
 }
 
 .eyebrow,
@@ -96,42 +166,6 @@ h1 {
   font-weight: 850;
 }
 
-.user-pill {
-  display: inline-block;
-  margin: 8px 0 0;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 6px 10px;
-  background: rgba(255, 255, 255, 0.55);
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 800;
-}
-
-.login-row {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 14px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 16px;
-}
-
-.login-row label {
-  margin-top: 0;
-}
-
-.login-row > button.primary {
-  width: 100%;
-}
-
-.login-row p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.82rem;
-}
 
 .auth-toggle {
   display: flex;

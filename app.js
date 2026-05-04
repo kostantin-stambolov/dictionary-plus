@@ -274,7 +274,55 @@ if ("serviceWorker" in navigator) {
 render();
 bootBackend();
 
+function isLoggedIn() {
+  const id = state.user.id;
+  return id && id !== "local" && id !== "default";
+}
+
 function render() {
+  if (state.booting) {
+    app.innerHTML = `<div class="auth-screen"><p class="muted">Зареждане...</p></div>`;
+    return;
+  }
+
+  if (!isLoggedIn()) {
+    renderAuthScreen();
+    return;
+  }
+
+  renderDictionary();
+}
+
+function renderAuthScreen() {
+  const isRegister = state.authMode === "register";
+  app.innerHTML = `
+    <div class="auth-screen">
+      <div class="auth-brand">
+        <p class="eyebrow">Активен речник</p>
+        <h1>Dictionary</h1>
+        <p class="dictionary-meta">Корейски → Български</p>
+      </div>
+      <form class="auth-form" data-form="auth">
+        <div class="auth-toggle">
+          <button type="button" class="${!isRegister ? "active" : ""}" data-action="set-auth-login">Влез</button>
+          <button type="button" class="${isRegister ? "active" : ""}" data-action="set-auth-register">Регистрация</button>
+        </div>
+        <label>
+          <span>Име</span>
+          <input name="displayName" value="${escapeHtml(state.authDraft)}" placeholder="например: Mira" autocomplete="username" />
+        </label>
+        <label>
+          <span>PIN (4–6 цифри)</span>
+          <input name="pin" type="password" inputmode="numeric" maxlength="6" value="${escapeHtml(state.pinDraft)}" placeholder="••••" autocomplete="${isRegister ? "new-password" : "current-password"}" />
+        </label>
+        <button class="primary" type="submit">${isRegister ? "Създай профил" : "Влез"}</button>
+        ${state.syncMessage ? `<p class="auth-message">${escapeHtml(state.syncMessage)}</p>` : ""}
+      </form>
+    </div>
+  `;
+}
+
+function renderDictionary() {
   const words = filteredWords();
   const session = currentSession(words);
   const current = session[state.activeIndex] || session[0] || words[0];
@@ -289,65 +337,23 @@ function render() {
         <p class="eyebrow">Активен речник</p>
         <h1>Dictionary</h1>
         <p class="dictionary-meta">${dictionaryLabel}</p>
-        <p class="user-pill">Потребител: ${escapeHtml(state.user.name)} · ${state.backendAvailable ? "Postgres sync" : "local dev"}</p>
       </div>
-      ${
-        state.focused
-          ? `<button class="text-button" data-action="change-session">Смени</button>`
-          : `<button class="icon-button" data-action="reset-session" title="Нова сесия" aria-label="Нова сесия">↻</button>`
-      }
+      <div class="topbar-user">
+        <span class="user-name">${escapeHtml(state.user.name)}</span>
+        ${
+          state.focused
+            ? `<button class="text-button" data-action="change-session">Смени</button>`
+            : `<button class="icon-button" data-action="reset-session" title="Нова сесия" aria-label="Нова сесия">↻</button>`
+        }
+        <button class="text-button logout-btn" data-action="logout" title="Изход">Изход</button>
+      </div>
     </header>
-
-    ${renderLogin()}
 
     ${
       state.focused
         ? renderFocused(session, current, words)
         : renderHome({ learned, mastered, sessionRange })
     }
-  `;
-}
-
-function renderLogin() {
-  if (state.focused) return "";
-
-  const isLoggedIn = state.user.id && state.user.id !== "local" && state.user.id !== "default";
-  if (isLoggedIn && state.backendAvailable) {
-    return `
-      <div class="login-row">
-        <p>Здравей, <strong>${escapeHtml(state.user.name)}</strong></p>
-        <button class="text-button" data-action="logout">Смени профил</button>
-        <p>${escapeHtml(state.syncMessage)}</p>
-      </div>
-    `;
-  }
-
-  if (!state.backendAvailable) {
-    return `
-      <div class="login-row">
-        <p>${escapeHtml(state.syncMessage)}</p>
-      </div>
-    `;
-  }
-
-  const isRegister = state.authMode === "register";
-  return `
-    <form class="login-row" data-form="auth">
-      <div class="auth-toggle">
-        <button type="button" class="${!isRegister ? "active" : ""}" data-action="set-auth-login">Влез</button>
-        <button type="button" class="${isRegister ? "active" : ""}" data-action="set-auth-register">Регистрация</button>
-      </div>
-      <label>
-        <span>Име</span>
-        <input name="displayName" value="${escapeHtml(state.authDraft)}" placeholder="например: Mira" autocomplete="username" />
-      </label>
-      <label>
-        <span>PIN (4–6 цифри)</span>
-        <input name="pin" type="password" inputmode="numeric" maxlength="6" value="${escapeHtml(state.pinDraft)}" placeholder="••••" autocomplete="${isRegister ? "new-password" : "current-password"}" />
-      </label>
-      <button class="primary" type="submit">${isRegister ? "Създай профил" : "Влез"}</button>
-      <p>${escapeHtml(state.syncMessage)}</p>
-    </form>
   `;
 }
 
